@@ -2483,6 +2483,13 @@ default_t defaults[] = {
     "1 to enable automap rotate mode"
   },
 
+  {
+    "automapsquareaspect",
+    (config_t *) &automapsquareaspect, NULL,
+    {0}, {0,1}, number, ss_auto, wad_no,
+    "1 to enable automap square aspect ratio"
+  },
+
   //jff 1/7/98 end additions for automap
 
   //jff 2/16/98 defaults for color ranges in hud and status

@@ -285,8 +285,10 @@ void (*AM_drawFline)(fline_t*, int) = AM_drawFline_Vanilla;
 
 // [crispy] automap rotate mode needs these early on
 boolean automaprotate = false;
+boolean automapsquareaspect = true;
+#define ADJUST_ASPECT_RATIO (use_aspect && automapsquareaspect)
 static void AM_rotate(int64_t *x, int64_t *y, angle_t a);
-static void AM_rotatePoint(mpoint_t *pt);
+static void AM_transformPoint(mpoint_t *pt);
 static mpoint_t mapcenter;
 static angle_t mapangle;
 
@@ -1489,19 +1491,19 @@ static void AM_drawGrid(int color)
     // [crispy] moved here
     ml.a.y = m_y;
     ml.b.y = m_y+m_h;
-    if (automaprotate)
+    if (automaprotate || ADJUST_ASPECT_RATIO)
     {
       ml.a.y -= m_w / 2;
       ml.b.y += m_w / 2;
-      AM_rotatePoint(&ml.a);
-      AM_rotatePoint(&ml.b);
     }
+    AM_transformPoint(&ml.a);
+    AM_transformPoint(&ml.b);
     AM_drawMline(&ml, color);
   }
 
   // Figure out start of horizontal gridlines
   start = m_y;
-  if (automaprotate)
+  if (automaprotate || ADJUST_ASPECT_RATIO)
   {
     start -= m_w / 2;
   }
@@ -1510,7 +1512,7 @@ static void AM_drawGrid(int color)
     start += // (MAPBLOCKUNITS<<FRACBITS)
       - ((start-(bmaporgy>>FRACTOMAPBITS))%gridsize);
   end = m_y + m_h;
-  if (automaprotate)
+  if (automaprotate || ADJUST_ASPECT_RATIO)
   {
     end += m_w / 2;
   }
@@ -1523,13 +1525,13 @@ static void AM_drawGrid(int color)
     // [crispy] moved here
     ml.a.x = m_x;
     ml.b.x = m_x + m_w;
-    if (automaprotate)
+    if (automaprotate || ADJUST_ASPECT_RATIO)
     {
       ml.a.x -= m_h / 2;
       ml.b.x += m_h / 2;
-      AM_rotatePoint(&ml.a);
-      AM_rotatePoint(&ml.b);
     }
+    AM_transformPoint(&ml.a);
+    AM_transformPoint(&ml.b);
     AM_drawMline(&ml, color);
   }
 }
@@ -1622,11 +1624,8 @@ static void AM_drawWalls(void)
     l.a.y = lines[i].v1->y >> FRACTOMAPBITS;
     l.b.x = lines[i].v2->x >> FRACTOMAPBITS;
     l.b.y = lines[i].v2->y >> FRACTOMAPBITS;
-    if (automaprotate)
-    {
-        AM_rotatePoint(&l.a);
-        AM_rotatePoint(&l.b);
-    }
+    AM_transformPoint(&l.a);
+    AM_transformPoint(&l.b);
     // if line has been seen or IDDT has been used
     if (ddt_cheating || (lines[i].flags & ML_MAPPED))
     {
@@ -1844,26 +1843,36 @@ static void AM_rotate
 
 // [crispy] rotate point around map center
 // adapted from prboom-plus/src/am_map.c:898-920
-static void AM_rotatePoint(mpoint_t *pt)
+// [Woof!] Also, scale y coordinate of point for square aspect ratio
+static void AM_transformPoint(mpoint_t *pt)
 {
-  int64_t tmpx;
-  // [crispy] smooth automap rotation
-  angle_t smoothangle = followplayer ? ANG90 - viewangle : mapangle;
+  if (automaprotate)
+  {
+    int64_t tmpx;
+    // [crispy] smooth automap rotation
+    angle_t smoothangle = followplayer ? ANG90 - viewangle : mapangle;
 
-  pt->x -= mapcenter.x;
-  pt->y -= mapcenter.y;
+    pt->x -= mapcenter.x;
+    pt->y -= mapcenter.y;
 
-  smoothangle >>= ANGLETOFINESHIFT;
+    smoothangle >>= ANGLETOFINESHIFT;
 
-  tmpx = (int64_t)FixedMul(pt->x, finecosine[smoothangle])
-       - (int64_t)FixedMul(pt->y, finesine[smoothangle])
-       + mapcenter.x;
+    tmpx = (int64_t)FixedMul(pt->x, finecosine[smoothangle])
+         - (int64_t)FixedMul(pt->y, finesine[smoothangle])
+         + mapcenter.x;
 
-  pt->y = (int64_t)FixedMul(pt->x, finesine[smoothangle])
-        + (int64_t)FixedMul(pt->y, finecosine[smoothangle])
-        + mapcenter.y;
+    pt->y = (int64_t)FixedMul(pt->x, finesine[smoothangle])
+          + (int64_t)FixedMul(pt->y, finecosine[smoothangle])
+          + mapcenter.y;
 
-  pt->x = tmpx;
+    pt->x = tmpx;
+  }
+  if (ADJUST_ASPECT_RATIO)
+  {
+    int64_t diff = pt->y - mapcenter.y;
+    diff = 5 * diff / 6;
+    pt->y = mapcenter.y + diff;
+  }
 }
 
 //
@@ -1907,6 +1916,9 @@ static void AM_drawLineCharacter
     if (angle)
       AM_rotate(&l.a.x, &l.a.y, angle);
 
+    if (ADJUST_ASPECT_RATIO)
+      l.a.y = 5 * l.a.y / 6;
+
     l.a.x += x;
     l.a.y += y;
 
@@ -1921,6 +1933,9 @@ static void AM_drawLineCharacter
 
     if (angle)
       AM_rotate(&l.b.x, &l.b.y, angle);
+
+    if (ADJUST_ASPECT_RATIO)
+      l.b.y = 5 * l.b.y / 6;
 
     l.b.x += x;
     l.b.y += y;
@@ -1962,10 +1977,7 @@ static void AM_drawPlayers(void)
         pt.x = plr->mo->x >> FRACTOMAPBITS;
         pt.y = plr->mo->y >> FRACTOMAPBITS;
     }
-    if (automaprotate)
-    {
-        AM_rotatePoint(&pt);
-    }
+    AM_transformPoint(&pt);
 
     if (ddt_cheating)
       AM_drawLineCharacter
@@ -2022,9 +2034,9 @@ static void AM_drawPlayers(void)
         pt.y = p->mo->y >> FRACTOMAPBITS;
     }
 
+    AM_transformPoint(&pt);
     if (automaprotate)
     {
-      AM_rotatePoint(&pt);
       smoothangle = p->mo->angle;
     }
     else
@@ -2085,10 +2097,7 @@ static void AM_drawThings
         pt.x = t->x >> FRACTOMAPBITS;
         pt.y = t->y >> FRACTOMAPBITS;
       }
-      if (automaprotate)
-      {
-        AM_rotatePoint(&pt);
-      }
+      AM_transformPoint(&pt);
 
       //jff 1/5/98 case over doomednum of thing being drawn
       if (mapcolor_rkey || mapcolor_ykey || mapcolor_bkey)
@@ -2192,10 +2201,7 @@ static void AM_drawMarks(void)
 	// [crispy] center marks around player
 	pt.x = markpoints[i].x;
 	pt.y = markpoints[i].y;
-	if (automaprotate)
-	{
-	  AM_rotatePoint(&pt);
-	}
+	AM_transformPoint(&pt);
 	fx = CXMTOF(pt.x);
 	fy = CYMTOF(pt.y);
 
@@ -2261,13 +2267,13 @@ void AM_Drawer (void)
     AM_changeWindowLoc();
   }
 
-  // [crispy] required for AM_rotatePoint()
-  if (automaprotate)
+  // [crispy/Woof!] required for AM_transformPoint()
+  if (automaprotate || ADJUST_ASPECT_RATIO)
   {
     mapcenter.x = m_x + m_w / 2;
     mapcenter.y = m_y + m_h / 2;
     // [crispy] keep the map static if not following the player
-    if (followplayer)
+    if (automaprotate && followplayer)
     {
       mapangle = ANG90 - plr->mo->angle;
     }

@@ -258,6 +258,7 @@ typedef enum
 
 extern  overlay_t automapoverlay;
 extern  boolean automaprotate;
+extern  boolean automapsquareaspect;
 
 #define automap_on (automapactive && !automapoverlay)
 #define automap_off (!automapactive || automapoverlay)
